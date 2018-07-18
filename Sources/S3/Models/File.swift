@@ -101,6 +101,9 @@ public struct File {
         
         /// File type (mime)
         public internal(set) var mime: String
+
+        /// File's URL address
+        public internal(set) var url: URL
         
     }
     

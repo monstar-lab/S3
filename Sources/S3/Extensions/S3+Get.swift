@@ -36,7 +36,7 @@ public extension S3 {
                 throw Error.missingData
             }
             
-            let res = File.Response(data: data, bucket: file.bucket ?? self.defaultBucket, path: file.path, access: nil, mime: self.mimeType(forFileAtUrl: url))
+            let res = File.Response(data: data, bucket: file.bucket ?? self.defaultBucket, path: file.path, access: nil, mime: self.mimeType(forFileAtUrl: url), url: url)
             return res
         }
     }
