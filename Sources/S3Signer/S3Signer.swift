@@ -3,6 +3,7 @@ import Service
 import HTTP
 import Crypto
 
+fileprivate let kMetadataURL = "http://169.254.169.254/latest/meta-data/iam/security-credentials"
 
 /// S3 Client: All network calls to and from AWS' S3 servers
 public final class S3Signer: Service {
@@ -11,25 +12,30 @@ public final class S3Signer: Service {
     public enum Error: Swift.Error {
         case badURL(String)
         case invalidEncoding
+        case missingKeySet
     }
     
     /// S3 Configuration
     public struct Config: Service {
         
         /// AWS Access Key
-        let accessKey: String
+        var accessKey: String? = nil
         
         /// AWS Secret Key
-        let secretKey: String
+        var secretKey: String? = nil
         
         /// The region where S3 bucket is located.
         public let region: Region
         
         /// AWS Security Token. Used to validate temporary credentials, such as those from an EC2 Instance's IAM role
-        let securityToken : String?
+        var securityToken : String?
+
+        /// IAM role
+        var roleName: String? = nil
         
         /// AWS Service type
         let service: String = "s3"
+
         
         /// Initalizer
         public init(accessKey: String, secretKey: String, region: Region, securityToken: String? = nil) {
@@ -38,17 +44,75 @@ public final class S3Signer: Service {
             self.region = region
             self.securityToken = securityToken
         }
-        
+
+        public init(roleName: String, region: Region) {
+            self.roleName = roleName
+            self.region = region
+        }
     }
     
     /// Configuration
     public private(set) var config: Config
+
+    private let refreshQueue: DispatchQueue
+    private let urlSession: URLSession
     
     /// Initializer
     public init(_ config: Config) throws {
         self.config = config
+        self.refreshQueue = DispatchQueue(label: "com.liveui.S3.refreshQueue")
+
+        let sessionConfiguration = URLSessionConfiguration.default
+
+        sessionConfiguration.timeoutIntervalForRequest = 1
+        sessionConfiguration.timeoutIntervalForResource = 3
+
+        self.urlSession = URLSession(configuration: sessionConfiguration)
+
+        if config.roleName != nil {
+            self.refreshQueue.async {
+                self.refreshKeys()
+            }
+        }
     }
-    
+
+    private func refreshKeys() {
+        guard
+            let roleName = config.roleName,
+            let url = URL(string: "\(kMetadataURL)/\(roleName)")
+        else {
+            return
+        }
+
+        let task = urlSession.dataTask(with: url) { data, response, error in
+            defer {
+                self.refreshQueue.asyncAfter(deadline: DispatchTime.now() + .seconds(1_800)) {
+                    self.refreshKeys()
+                }
+            }
+
+            guard let data = data else {
+                return
+            }
+
+            let decoder = JSONDecoder()
+            let roleMetadata = try? decoder.decode(RoleMetadata.self, from: data)
+
+            if let role = roleMetadata {
+                self.config.accessKey = role.AccessKeyId
+                self.config.secretKey = role.SecretAccessKey
+                self.config.securityToken = role.Token
+            }
+        }
+
+        task.resume()
+    }
+
+    private struct RoleMetadata: Codable {
+        let AccessKeyId: String
+        let SecretAccessKey: String
+        let Token: String
+    }
 }
 
 

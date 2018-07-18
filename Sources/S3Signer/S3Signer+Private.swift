@@ -30,7 +30,11 @@ extension S3Signer {
     }
     
     func createSignature(_ stringToSign: String, timeStampShort: String, region: Region) throws -> String {
-        let dateKey = try HMAC.SHA256.authenticate(timeStampShort.convertToData(), key: "AWS4\(config.secretKey)".convertToData())
+        guard let secretKey = config.secretKey else {
+            throw Error.missingKeySet
+        }
+
+        let dateKey = try HMAC.SHA256.authenticate(timeStampShort.convertToData(), key: "AWS4\(secretKey)".convertToData())
         let dateRegionKey = try HMAC.SHA256.authenticate(region.rawValue.convertToData(), key: dateKey)
         let dateRegionServiceKey = try HMAC.SHA256.authenticate(config.service.convertToData(), key: dateRegionKey)
         let signingKey = try HMAC.SHA256.authenticate("aws4_request".convertToData(), key: dateRegionServiceKey)
@@ -52,10 +56,14 @@ extension S3Signer {
     }
     
     func generateAuthHeader(_ httpMethod: HTTPMethod, url: URL, headers: [String: String], bodyDigest: String, dates: Dates, region: Region) throws -> String {
+        guard let accessKey = config.accessKey else {
+            throw Error.missingKeySet
+        }
+
         let canonicalRequestHex = try createCanonicalRequest(httpMethod, url: url, headers: headers, bodyDigest: bodyDigest)
         let stringToSign = try createStringToSign(canonicalRequestHex, dates: dates, region: region)
         let signature = try createSignature(stringToSign, timeStampShort: dates.short, region: region)
-        let authHeader = "AWS4-HMAC-SHA256 Credential=\(config.accessKey)/\(credentialScope(dates.short, region: region)), SignedHeaders=\(signed(headers: headers)), Signature=\(signature)"
+        let authHeader = "AWS4-HMAC-SHA256 Credential=\(accessKey)/\(credentialScope(dates.short, region: region)), SignedHeaders=\(signed(headers: headers)), Signature=\(signature)"
         return authHeader
     }
     
@@ -72,7 +80,12 @@ extension S3Signer {
             let signHeaders = signed(headers: headers).encode(type: .queryAllowed) else {
                 throw Error.invalidEncoding
         }
-        let fullURL = "\(url.absoluteString)?x-amz-algorithm=AWS4-HMAC-SHA256&x-amz-credential=\(config.accessKey)%2F\(credScope)&x-amz-date=\(dates.long)&x-amz-expires=\(expiration.value)&x-amz-signedheaders=\(signHeaders)"
+
+        guard let accessKey = config.accessKey else {
+            throw Error.missingKeySet
+        }
+
+        let fullURL = "\(url.absoluteString)?x-amz-algorithm=AWS4-HMAC-SHA256&x-amz-credential=\(accessKey)%2F\(credScope)&x-amz-date=\(dates.long)&x-amz-expires=\(expiration.value)&x-amz-signedheaders=\(signHeaders)"
         
         // This should never throw.
         guard let url = URL(string: fullURL) else {
