@@ -24,12 +24,6 @@ public extension S3 {
             return Void()
         }
     }
-
-    /// Delete file from S3
-    public func delete(file: LocationConvertible, on container: Container) throws -> Future<Void> {
-        return try delete(file: file, headers: [:], on: container)
-    }
-
 }
 
 // for more information https://docs.aws.amazon.com/AmazonS3/latest/API/RESTObjectPUTacl.html
